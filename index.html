@@ -1,0 +1,453 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="KN Maps">
+<meta name="theme-color" content="#14161a">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<title>King Neptune Map Viewer</title>
+<style>
+  :root { --bg:#14161a; --panel:#23262b; --line:#3a3d44; --text:#e2e4e8; --muted:#9aa0aa; --gold:#d4af37; --blue:#2f80ed; }
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html, body { margin:0; height:100%; background:var(--bg); color:var(--text); overflow:hidden;
+    font:15px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; overscroll-behavior:none; }
+  #stage { position:fixed; inset:0; touch-action:none; }
+  canvas { display:block; width:100%; height:100%; touch-action:none; }
+  .bar { position:fixed; left:0; right:0; z-index:5; display:flex; gap:8px; align-items:center; padding:8px 10px;
+    background:rgba(20,22,26,.86); backdrop-filter:blur(8px); -webkit-backdrop-filter:blur(8px); }
+  #top { top:0; padding-top:calc(8px + env(safe-area-inset-top)); border-bottom:1px solid var(--line); }
+  #bottom { bottom:0; padding-bottom:calc(8px + env(safe-area-inset-bottom)); border-top:1px solid var(--line);
+    font-size:13px; color:var(--muted); justify-content:space-between; }
+  #title { flex:1; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-weight:600; color:var(--gold); }
+  button, .btn { font:inherit; color:var(--text); background:#2c3036; border:1px solid var(--line); border-radius:9px;
+    padding:8px 12px; cursor:pointer; }
+  button:active, .btn:active { background:#3a3e46; }
+  button.on { background:var(--blue); border-color:var(--blue); color:#fff; }
+  button.primary { background:var(--gold); border-color:var(--gold); color:#14161a; font-weight:600; }
+  #fab { position:fixed; right:12px; bottom:calc(64px + env(safe-area-inset-bottom)); z-index:5; display:flex; flex-direction:column; gap:8px; }
+  #fab button { width:48px; height:48px; padding:0; border-radius:50%; font-size:20px; background:rgba(35,38,43,.92); }
+  #status.bad { color:#ff9a8a; }
+  #status.ok { color:#9fe3a8; }
+  #panel { position:fixed; inset:0; z-index:10; background:rgba(0,0,0,.55); display:none; }
+  #panel.show { display:block; }
+  #sheet { position:absolute; left:0; right:0; bottom:0; max-height:82%; overflow:auto; background:var(--panel);
+    border-radius:16px 16px 0 0; padding:16px 16px calc(20px + env(safe-area-inset-bottom)); border-top:1px solid var(--line); }
+  #sheet h2 { margin:0 0 4px; font-size:17px; color:var(--gold); }
+  #sheet p { margin:6px 0 12px; color:var(--muted); font-size:13px; line-height:1.4; }
+  .row { display:flex; gap:8px; align-items:center; padding:10px 0; border-top:1px solid var(--line); }
+  .row .name { flex:1; min-width:0; }
+  .row .name b { display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .row .name span { color:var(--muted); font-size:12px; }
+  .sw { display:flex; justify-content:space-between; align-items:center; padding:12px 0; border-top:1px solid var(--line); }
+  #install { position:fixed; left:10px; right:10px; z-index:6; top:calc(56px + env(safe-area-inset-top)); display:none;
+    background:var(--panel); border:1px solid var(--gold); border-radius:12px; padding:10px 12px; font-size:13px; }
+  #install button { margin-top:8px; }
+  #empty { position:fixed; inset:0; z-index:3; display:flex; flex-direction:column; align-items:center; justify-content:center;
+    text-align:center; padding:30px; gap:14px; color:var(--muted); }
+  #empty img { width:84px; height:84px; border-radius:18px; }
+  #empty h1 { margin:0; color:var(--gold); font-size:20px; }
+  #busy { position:fixed; inset:0; z-index:20; background:rgba(0,0,0,.6); display:none; align-items:center; justify-content:center; font-size:16px; }
+  #busy.show { display:flex; }
+  input[type=file] { display:none; }
+</style>
+</head>
+<body>
+<div id="stage"><canvas id="cv"></canvas></div>
+
+<div class="bar" id="top">
+  <div id="title">King Neptune Map Viewer</div>
+  <button id="btnMenu" aria-label="Maps and settings">Maps</button>
+</div>
+
+<div id="install">
+  To keep this working offline, tap the Share button, then <b>Add to Home Screen</b>, and open it from there.
+  <div><button id="installOk">Got it</button></div>
+</div>
+
+<div id="empty">
+  <img src="icon-192.png" alt="">
+  <h1>King Neptune Map Viewer</h1>
+  <div>Load a <b>.knmap</b> file exported from King Neptune Mapping to see your location on the map. Maps are stored on this phone and work offline.</div>
+  <button class="primary" id="btnLoadEmpty">Load a map</button>
+</div>
+
+<div id="fab">
+  <button id="btnLocate" aria-label="Show my location">&#10148;</button>
+  <button id="btnFit" aria-label="Fit map to screen">&#9974;</button>
+</div>
+
+<div class="bar" id="bottom">
+  <span id="status">Location off. Tap the arrow.</span>
+  <span id="coords"></span>
+</div>
+
+<div id="panel">
+  <div id="sheet">
+    <h2>Maps</h2>
+    <p>Tap a map to open it. Maps stay on this phone, so they work without signal.</p>
+    <div id="list"></div>
+    <div class="row" style="border-top:none"><button class="primary" id="btnLoad">Load a map file</button></div>
+    <h2 style="margin-top:14px">Settings</h2>
+    <div class="sw"><span>Keep screen on</span><button id="btnWake">Off</button></div>
+    <div class="sw"><span>Distance units</span><button id="btnUnits">Feet</button></div>
+    <div class="row" style="border-top:1px solid var(--line)"><button id="btnClose" style="flex:1">Close</button></div>
+  </div>
+</div>
+
+<div id="busy">Loading map...</div>
+<input type="file" id="file">
+
+<script>
+(function () {
+  'use strict';
+  var $ = function (id) { return document.getElementById(id); };
+  var R = 6378137;                                    // Web Mercator radius (m)
+
+  // ---------- storage (IndexedDB) ----------
+  var dbp = new Promise(function (resolve, reject) {
+    var rq = indexedDB.open('kn-maps', 1);
+    rq.onupgradeneeded = function () { rq.result.createObjectStore('maps', { keyPath: 'id' }); };
+    rq.onsuccess = function () { resolve(rq.result); };
+    rq.onerror = function () { reject(rq.error); };
+  });
+  function tx(mode, fn) {
+    return dbp.then(function (db) {
+      return new Promise(function (resolve, reject) {
+        var t = db.transaction('maps', mode), st = t.objectStore('maps'), out = fn(st);
+        t.oncomplete = function () { resolve(out && out.result !== undefined ? out.result : out); };
+        t.onerror = function () { reject(t.error); };
+        t.onabort = function () { reject(t.error); };
+      });
+    });
+  }
+  function dbAll()    { return tx('readonly',  function (s) { return s.getAll(); }); }
+  function dbGet(id)  { return tx('readonly',  function (s) { return s.get(id); }); }
+  function dbPut(rec) { return tx('readwrite', function (s) { return s.put(rec); }); }
+  function dbDel(id)  { return tx('readwrite', function (s) { return s.delete(id); }); }
+
+  function pref(k, v) {
+    try { if (v === undefined) return localStorage.getItem('kn_' + k); localStorage.setItem('kn_' + k, v); } catch (e) {}
+    return null;
+  }
+
+  // ---------- state ----------
+  var cv = $('cv'), ctx = cv.getContext('2d');
+  var map = null;            // { rec, bmp, w, h }
+  var view = { s: 1, tx: 0, ty: 0 };
+  var minS = 0.05, maxS = 8, dpr = 1, W = 0, H = 0;
+  var me = null;             // { lon, lat, acc, heading }
+  var watchId = null, follow = false, wakeLock = null, useFeet = pref('units') !== 'm';
+  var drawQueued = false;
+
+  // ---------- projection ----------
+  function toMerc(lon, lat) {
+    var x = R * lon * Math.PI / 180;
+    var y = R * Math.log(Math.tan(Math.PI / 4 + (lat * Math.PI / 180) / 2));
+    return [x, y];
+  }
+  function toPixel(lon, lat) {                       // -> image pixel coordinates
+    var b = map.rec.bbox, m = toMerc(lon, lat);
+    return [(m[0] - b.xmin) / (b.xmax - b.xmin) * map.w, (b.ymax - m[1]) / (b.ymax - b.ymin) * map.h];
+  }
+  function metersPerImagePx() {
+    var b = map.rec.bbox, lat = me ? me.lat : mercLatCenter();
+    return ((b.xmax - b.xmin) / map.w) * Math.cos(lat * Math.PI / 180);   // ground metres per image pixel
+  }
+  function mercLatCenter() {
+    var b = map.rec.bbox, y = (b.ymin + b.ymax) / 2;
+    return (2 * Math.atan(Math.exp(y / R)) - Math.PI / 2) * 180 / Math.PI;
+  }
+
+  // ---------- drawing ----------
+  function resize() {
+    dpr = Math.min(window.devicePixelRatio || 1, 3);
+    W = window.innerWidth; H = window.innerHeight;
+    cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
+    if (map) { clampView(); draw(); }
+  }
+  function fitView() {
+    if (!map) return;
+    var top = $('top').offsetHeight, bot = $('bottom').offsetHeight;
+    var availH = Math.max(100, H - top - bot - 20);
+    var s = Math.min((W - 16) / map.w, availH / map.h);
+    minS = s * 0.5;
+    view.s = s;
+    view.tx = (W - map.w * s) / 2;
+    view.ty = top + 10 + (availH - map.h * s) / 2;
+    draw();
+  }
+  function clampView() {
+    if (!map) return;
+    view.s = Math.max(minS, Math.min(maxS, view.s));
+    var iw = map.w * view.s, ih = map.h * view.s, keep = 80;     // always leave part of the map on screen
+    view.tx = Math.min(W - keep, Math.max(keep - iw, view.tx));
+    view.ty = Math.min(H - keep, Math.max(keep - ih, view.ty));
+  }
+  function draw() {
+    if (drawQueued) return;
+    drawQueued = true;
+    requestAnimationFrame(function () { drawQueued = false; paint(); });
+  }
+  function paint() {
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.fillStyle = '#14161a'; ctx.fillRect(0, 0, cv.width, cv.height);
+    if (!map) return;
+    ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
+    ctx.setTransform(dpr * view.s, 0, 0, dpr * view.s, dpr * view.tx, dpr * view.ty);
+    ctx.drawImage(map.bmp, 0, 0);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    drawMe();
+  }
+  function drawMe() {
+    if (!me || !map) return;
+    var p = toPixel(me.lon, me.lat);
+    if (p[0] < 0 || p[1] < 0 || p[0] > map.w || p[1] > map.h) return;
+    var x = view.tx + p[0] * view.s, y = view.ty + p[1] * view.s;
+    var accPx = me.acc / metersPerImagePx() * view.s;                // accuracy circle radius on screen
+    if (accPx > 6) {
+      ctx.beginPath(); ctx.arc(x, y, accPx, 0, 6.2832);
+      ctx.fillStyle = 'rgba(47,128,237,.18)'; ctx.fill();
+      ctx.lineWidth = 1; ctx.strokeStyle = 'rgba(47,128,237,.6)'; ctx.stroke();
+    }
+    if (me.heading != null && !isNaN(me.heading)) {                  // direction of travel
+      var a = (me.heading - 90) * Math.PI / 180;
+      ctx.beginPath(); ctx.moveTo(x, y);
+      ctx.arc(x, y, 34, a - 0.5, a + 0.5); ctx.closePath();
+      ctx.fillStyle = 'rgba(47,128,237,.45)'; ctx.fill();
+    }
+    ctx.beginPath(); ctx.arc(x, y, 9, 0, 6.2832);
+    ctx.fillStyle = '#2f80ed'; ctx.fill();
+    ctx.lineWidth = 3; ctx.strokeStyle = '#fff'; ctx.stroke();
+  }
+
+  // ---------- gestures ----------
+  var ptrs = new Map(), last = null;
+  function dist(a, b) { return Math.hypot(a.x - b.x, a.y - b.y); }
+  function zoomAt(cx, cy, factor) {
+    var ns = Math.max(minS, Math.min(maxS, view.s * factor)), k = ns / view.s;
+    view.tx = cx - (cx - view.tx) * k; view.ty = cy - (cy - view.ty) * k; view.s = ns;
+  }
+  cv.addEventListener('pointerdown', function (e) {
+    cv.setPointerCapture(e.pointerId);
+    ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    last = snapshot();
+  });
+  cv.addEventListener('pointermove', function (e) {
+    if (!ptrs.has(e.pointerId) || !map) return;
+    ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    var now = snapshot();
+    if (last && last.n === now.n) {
+      if (now.n === 1) {
+        view.tx += now.cx - last.cx; view.ty += now.cy - last.cy;
+        if (Math.abs(now.cx - last.cx) + Math.abs(now.cy - last.cy) > 0) setFollow(false);
+      } else if (now.n >= 2 && last.d > 0) {
+        zoomAt(now.cx, now.cy, now.d / last.d);
+        view.tx += now.cx - last.cx; view.ty += now.cy - last.cy;
+        setFollow(false);
+      }
+      clampView(); draw();
+    }
+    last = now;
+  });
+  function endPtr(e) { ptrs.delete(e.pointerId); last = snapshot(); }
+  cv.addEventListener('pointerup', endPtr);
+  cv.addEventListener('pointercancel', endPtr);
+  function snapshot() {
+    var a = Array.from(ptrs.values()), n = a.length;
+    if (!n) return { n: 0, cx: 0, cy: 0, d: 0 };
+    var cx = a.reduce(function (s, p) { return s + p.x; }, 0) / n, cy = a.reduce(function (s, p) { return s + p.y; }, 0) / n;
+    return { n: n, cx: cx, cy: cy, d: n >= 2 ? dist(a[0], a[1]) : 0 };
+  }
+  cv.addEventListener('wheel', function (e) {
+    e.preventDefault(); if (!map) return;
+    zoomAt(e.clientX, e.clientY, Math.exp(-e.deltaY * 0.0015)); clampView(); draw(); setFollow(false);
+  }, { passive: false });
+  cv.addEventListener('dblclick', function (e) { if (!map) return; zoomAt(e.clientX, e.clientY, 2); clampView(); draw(); });
+  ['gesturestart', 'gesturechange'].forEach(function (n) { document.addEventListener(n, function (e) { e.preventDefault(); }); });
+
+  // ---------- location ----------
+  function setStatus(t, cls) { var s = $('status'); s.textContent = t; s.className = cls || ''; }
+  function fmtDist(m) {
+    if (useFeet) { var f = m * 3.28084; return f >= 5280 ? (f / 5280).toFixed(2) + ' mi' : Math.round(f) + ' ft'; }
+    return m >= 1000 ? (m / 1000).toFixed(2) + ' km' : Math.round(m) + ' m';
+  }
+  function updateReadout() {
+    if (!me) return;
+    $('coords').textContent = me.lat.toFixed(5) + ', ' + me.lon.toFixed(5);
+    if (!map) { setStatus('Location on. Load a map.', 'ok'); return; }
+    var p = toPixel(me.lon, me.lat);
+    var inside = p[0] >= 0 && p[1] >= 0 && p[0] <= map.w && p[1] <= map.h;
+    if (inside) setStatus('On map, accuracy ±' + fmtDist(me.acc), 'ok');
+    else setStatus('Outside this map', 'bad');
+  }
+  function onPos(pos) {
+    me = { lon: pos.coords.longitude, lat: pos.coords.latitude, acc: pos.coords.accuracy || 0,
+           heading: (pos.coords.speed != null && pos.coords.speed > 0.6) ? pos.coords.heading : null };
+    updateReadout();
+    if (follow && map) centerOnMe(false);
+    draw();
+  }
+  function onPosErr(err) {
+    var msg = err.code === 1 ? 'Location blocked. Allow it in Settings > Privacy > Location Services.'
+            : err.code === 2 ? 'No GPS fix yet.' : 'Location timed out.';
+    setStatus(msg, 'bad');
+    if (err.code === 1) stopWatch();
+  }
+  function startWatch() {
+    if (!navigator.geolocation) { setStatus('This browser has no location support.', 'bad'); return; }
+    if (watchId != null) return;
+    setStatus('Finding you...');
+    watchId = navigator.geolocation.watchPosition(onPos, onPosErr, { enableHighAccuracy: true, maximumAge: 2000, timeout: 20000 });
+    $('btnLocate').classList.add('on');
+  }
+  function stopWatch() {
+    if (watchId != null) navigator.geolocation.clearWatch(watchId);
+    watchId = null; me = null; setFollow(false);
+    $('btnLocate').classList.remove('on'); $('coords').textContent = '';
+    setStatus('Location off. Tap the arrow.'); draw();
+  }
+  function setFollow(on) { follow = on; $('btnLocate').textContent = on ? '◉' : '➤'; }
+  function centerOnMe(zoomIn) {
+    if (!me || !map) return;
+    var p = toPixel(me.lon, me.lat);
+    if (p[0] < 0 || p[1] < 0 || p[0] > map.w || p[1] > map.h) return;
+    if (zoomIn && view.s < 0.4) view.s = Math.min(maxS, Math.max(view.s, 0.4));
+    view.tx = W / 2 - p[0] * view.s; view.ty = H / 2 - p[1] * view.s;
+    clampView(); draw();
+  }
+  $('btnLocate').addEventListener('click', function () {
+    if (watchId == null) { startWatch(); setFollow(true); return; }
+    if (!follow) { setFollow(true); centerOnMe(true); }
+    else { stopWatch(); }
+  });
+  $('btnFit').addEventListener('click', function () { setFollow(false); fitView(); });
+
+  // ---------- maps ----------
+  function b64ToBlob(b64, mime) {
+    var bin = atob(b64), n = bin.length, out = new Uint8Array(n);
+    for (var i = 0; i < n; i++) out[i] = bin.charCodeAt(i);
+    return new Blob([out], { type: mime });
+  }
+  function showBusy(on, t) { $('busy').textContent = t || 'Loading map...'; $('busy').classList.toggle('show', on); }
+  function loadFile(file) {
+    showBusy(true, 'Reading map...');
+    return file.text().then(function (txt) {
+      var j = JSON.parse(txt);
+      if (j.format !== 'kn-map-1' || !j.image || !j.bbox) throw new Error('This is not a King Neptune .knmap file.');
+      var rec = { id: 'm' + Date.now(), name: j.name || file.name.replace(/\.knmap$/i, ''), created: j.created || '',
+                  bbox: j.bbox, blob: b64ToBlob(j.image, j.mime || 'image/jpeg'), addedAt: Date.now() };
+      return dbPut(rec).then(function () { return rec; });
+    }).then(function (rec) { return openRec(rec); })
+      .catch(function (e) { showBusy(false); alert('Could not load that file: ' + (e && e.message || e)); });
+  }
+  function decode(blob) {
+    if (window.createImageBitmap) {
+      return createImageBitmap(blob).catch(function () { return viaImg(blob); });
+    }
+    return viaImg(blob);
+  }
+  function viaImg(blob) {
+    return new Promise(function (resolve, reject) {
+      var u = URL.createObjectURL(blob), im = new Image();
+      im.onload = function () { resolve(im); }; im.onerror = function () { reject(new Error('The map image could not be decoded.')); };
+      im.src = u;
+    });
+  }
+  function openRec(rec) {
+    showBusy(true, 'Opening map...');
+    return decode(rec.blob).then(function (bmp) {
+      map = { rec: rec, bmp: bmp, w: bmp.width, h: bmp.height };
+      pref('last', rec.id);
+      $('title').textContent = rec.name;
+      $('empty').style.display = 'none';
+      closePanel(); showBusy(false);
+      fitView(); updateReadout();
+    }).catch(function (e) { showBusy(false); alert('Could not open that map: ' + (e && e.message || e)); });
+  }
+  function renderList() {
+    return dbAll().then(function (all) {
+      all.sort(function (a, b) { return b.addedAt - a.addedAt; });
+      var box = $('list'); box.innerHTML = '';
+      if (!all.length) { box.innerHTML = '<div class="row"><div class="name"><span>No maps loaded yet.</span></div></div>'; return; }
+      all.forEach(function (r) {
+        var row = document.createElement('div'); row.className = 'row';
+        var nm = document.createElement('div'); nm.className = 'name';
+        nm.innerHTML = '<b></b><span></span>';
+        nm.firstChild.textContent = r.name + (map && map.rec.id === r.id ? '  (open)' : '');
+        nm.lastChild.textContent = (r.created || '') + ' · ' + (r.blob.size / 1048576).toFixed(1) + ' MB';
+        nm.addEventListener('click', function () { openRec(r); });
+        var del = document.createElement('button'); del.textContent = 'Delete';
+        del.addEventListener('click', function () {
+          if (!confirm('Delete "' + r.name + '" from this phone?')) return;
+          dbDel(r.id).then(function () {
+            if (map && map.rec.id === r.id) { map = null; $('title').textContent = 'King Neptune Map Viewer'; $('empty').style.display = 'flex'; draw(); }
+            renderList();
+          });
+        });
+        row.appendChild(nm); row.appendChild(del); box.appendChild(row);
+      });
+    });
+  }
+  function openPanel() { renderList(); $('panel').classList.add('show'); }
+  function closePanel() { $('panel').classList.remove('show'); }
+  $('btnMenu').addEventListener('click', openPanel);
+  $('btnClose').addEventListener('click', closePanel);
+  $('panel').addEventListener('click', function (e) { if (e.target === $('panel')) closePanel(); });
+  function pickFile() { $('file').value = ''; $('file').click(); }
+  $('btnLoad').addEventListener('click', pickFile);
+  $('btnLoadEmpty').addEventListener('click', pickFile);
+  $('file').addEventListener('change', function () { if (this.files && this.files[0]) loadFile(this.files[0]); });
+
+  // ---------- settings ----------
+  function setUnits(f) { useFeet = f; pref('units', f ? 'f' : 'm'); $('btnUnits').textContent = f ? 'Feet' : 'Meters'; updateReadout(); }
+  $('btnUnits').addEventListener('click', function () { setUnits(!useFeet); });
+  function wakeOn() {
+    if (!('wakeLock' in navigator)) { alert('This browser cannot keep the screen on. Raise Auto-Lock time in iPhone Settings > Display instead.'); return; }
+    navigator.wakeLock.request('screen').then(function (l) {
+      wakeLock = l; $('btnWake').textContent = 'On'; $('btnWake').classList.add('on');
+      l.addEventListener('release', function () { if (wakeLock === l) wakeLock = null; });
+      pref('wake', '1');
+    }).catch(function () { alert('Could not keep the screen on.'); });
+  }
+  function wakeOff() {
+    if (wakeLock) wakeLock.release(); wakeLock = null;
+    $('btnWake').textContent = 'Off'; $('btnWake').classList.remove('on'); pref('wake', '0');
+  }
+  $('btnWake').addEventListener('click', function () { if (wakeLock) wakeOff(); else wakeOn(); });
+  document.addEventListener('visibilitychange', function () {       // the system drops the lock when the page is hidden
+    if (document.visibilityState === 'visible' && pref('wake') === '1' && !wakeLock && 'wakeLock' in navigator) wakeOn();
+  });
+
+  // ---------- startup ----------
+  var standalone = window.navigator.standalone === true || (window.matchMedia && matchMedia('(display-mode: standalone)').matches);
+  var isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  if (isIOS && !standalone && pref('hint') !== '1') $('install').style.display = 'block';
+  $('installOk').addEventListener('click', function () { $('install').style.display = 'none'; pref('hint', '1'); });
+
+  setUnits(useFeet);
+  window.addEventListener('resize', resize);
+  window.addEventListener('orientationchange', function () { setTimeout(function () { resize(); fitView(); }, 250); });
+  resize();
+
+  if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(function () {});
+  if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(function () {});
+
+  dbp.then(function () { return dbAll(); }).then(function (all) {
+    var id = pref('last'), rec = all.filter(function (r) { return r.id === id; })[0] || all.sort(function (a, b) { return b.addedAt - a.addedAt; })[0];
+    if (rec) return openRec(rec);
+  }).catch(function () {});
+  if (navigator.permissions && navigator.permissions.query) {         // resume tracking if the user already allowed it
+    navigator.permissions.query({ name: 'geolocation' }).then(function (p) { if (p.state === 'granted') startWatch(); }).catch(function () {});
+  }
+
+  // test hook (harmless in normal use)
+  window.__kn = { loadFile: loadFile, state: function () { return { view: view, map: !!map, me: me, W: W, H: H }; } };
+})();
+</script>
+</body>
+</html>
